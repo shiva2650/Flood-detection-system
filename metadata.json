@@ -1,5 +1,6 @@
 {
   "name": "AI Flood Prediction Alert System",
   "description": "A real-time flood risk monitoring and prediction dashboard using weather data and AI analysis.",
-  "requestFramePermissions": ["geolocation"]
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

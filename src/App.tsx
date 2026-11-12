@@ -8,10 +8,7 @@ import RadarView from './components/RadarView';
 import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -141,28 +138,8 @@ export default function App() {
 
   const fetchMonthlyOutlook = useCallback(async (city: string, temp: number, rain: number) => {
     try {
-      const prompt = `As an agricultural meteorologist, provide a 30-day agricultural outlook for ${city}. 
-      Current 2-day forecast shows avg temp ${temp}°C and total rain ${rain}mm.
-      Provide the response in JSON format with the following structure:
-      {
-        "summary": "Short overall outlook",
-        "weeks": [
-          { "week": 1, "condition": "e.g. Moderate Rain", "advice": "e.g. Prepare drainage" },
-          { "week": 2, "condition": "...", "advice": "..." },
-          { "week": 3, "condition": "...", "advice": "..." },
-          { "week": 4, "condition": "...", "advice": "..." }
-        ],
-        "riskLevel": "Low/Medium/High",
-        "primaryConcern": "e.g. Soil Saturation"
-      }`;
-
-      const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: prompt }] }],
-        config: { responseMimeType: "application/json" }
-      });
-
-      const outlook = JSON.parse(result.text || "{}");
+      const res = await axios.post('/api/gemini/monthly-outlook', { city, temp, rain });
+      const outlook = res.data;
       setMonthlyOutlook(outlook);
       return outlook;
     } catch (err) {
@@ -173,21 +150,15 @@ export default function App() {
 
   const fetchExtendedAdvisory = useCallback(async (city: string, riskLevel: string, temp: number, rainfall: number, baseAdvisory: string, outlookSummary: string) => {
     try {
-      const prompt = `You are an expert agricultural advisor. Based on the following conditions in ${city}:
-      - Flood Risk Level: ${riskLevel}
-      - Temperature: ${temp}°C
-      - Rainfall: ${rainfall}mm
-      - Base Advisory: ${baseAdvisory}
-      - Monthly Outlook: ${outlookSummary}
-      
-      Provide a specific, actionable, and expanded agricultural advisory for farmers in this region. Include advice on crop protection, livestock management, and equipment safety. Keep it concise but detailed (about 3-4 sentences).`;
-
-      const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: prompt }] }],
+      const res = await axios.post('/api/gemini/extended-advisory', {
+        city,
+        riskLevel,
+        temp,
+        rainfall,
+        baseAdvisory,
+        outlookSummary
       });
-
-      setExtendedAdvisory(result.text || "");
+      setExtendedAdvisory(res.data?.text || "");
     } catch (err) {
       console.error(err);
     }
@@ -195,26 +166,8 @@ export default function App() {
 
   const fetchWaterBodies = useCallback(async (lat: number, lon: number, city: string) => {
     try {
-      const prompt = `Identify ONLY the nearest and most significant water bodies (rivers, lakes, reservoirs, canals) that directly affect the flood risk of ${city} (lat: ${lat}, lon: ${lon}). 
-      Focus on those within immediate proximity or upstream that pose a direct hydrological threat.
-      Provide their current general conditions and specific flood risk factors based on their geography and proximity to the city.
-      Format the output as a clean, concise list with Name, Type, Distance, Condition, and Direct Impact/Risk Factor for each.`;
-
-      const result = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ parts: [{ text: prompt }] }],
-        config: { 
-          tools: [{ googleMaps: {} }],
-          toolConfig: {
-            retrievalConfig: {
-              latLng: { latitude: lat, longitude: lon }
-            }
-          }
-        }
-      });
-
-      // Since we can't use JSON with Maps, we store the raw text
-      setWaterBodiesRaw(result.text || "");
+      const res = await axios.post('/api/gemini/water-bodies', { lat, lon, city });
+      setWaterBodiesRaw(res.data?.text || "");
     } catch (err) {
       // Error handling removed
     }

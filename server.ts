@@ -270,6 +270,108 @@ async function startServer() {
     }
   });
 
+  const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+
+  app.post("/api/gemini/monthly-outlook", async (req, res) => {
+    const { city, temp, rain } = req.body;
+    try {
+      const prompt = `As an agricultural meteorologist, provide a 30-day agricultural outlook for ${city}. 
+      Current 2-day forecast shows avg temp ${temp}°C and total rain ${rain}mm.
+      Provide the response in JSON format with the following structure:
+      {
+        "summary": "Short overall outlook",
+        "weeks": [
+          { "week": 1, "condition": "e.g. Moderate Rain", "advice": "e.g. Prepare drainage" },
+          { "week": 2, "condition": "...", "advice": "..." },
+          { "week": 3, "condition": "...", "advice": "..." },
+          { "week": 4, "condition": "...", "advice": "..." }
+        ],
+        "riskLevel": "Low/Medium/High",
+        "primaryConcern": "e.g. Soil Saturation"
+      }`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: { responseMimeType: "application/json" }
+      });
+
+      const outlook = JSON.parse(result.text || "{}");
+      res.json(outlook);
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || "Failed to generate monthly outlook" });
+    }
+  });
+
+  app.post("/api/gemini/extended-advisory", async (req, res) => {
+    const { city, riskLevel, temp, rainfall, baseAdvisory, outlookSummary } = req.body;
+    try {
+      const prompt = `You are an expert agricultural advisor. Based on the following conditions in ${city}:
+      - Flood Risk Level: ${riskLevel}
+      - Temperature: ${temp}°C
+      - Rainfall: ${rainfall}mm
+      - Base Advisory: ${baseAdvisory}
+      - Monthly Outlook: ${outlookSummary}
+      
+      Provide a specific, actionable, and expanded agricultural advisory for farmers in this region. Include advice on crop protection, livestock management, and equipment safety. Keep it concise but detailed (about 3-4 sentences).`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: [{ parts: [{ text: prompt }] }],
+      });
+
+      res.json({ text: result.text || "" });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || "Failed to generate extended advisory" });
+    }
+  });
+
+  app.post("/api/gemini/water-bodies", async (req, res) => {
+    const { lat, lon, city } = req.body;
+    try {
+      const prompt = `Identify ONLY the nearest and most significant water bodies (rivers, lakes, reservoirs, canals) that directly affect the flood risk of ${city} (lat: ${lat}, lon: ${lon}). 
+      Focus on those within immediate proximity or upstream that pose a direct hydrological threat.
+      Provide their current general conditions and specific flood risk factors based on their geography and proximity to the city.
+      Format the output as a clean, concise list with Name, Type, Distance, Condition, and Direct Impact/Risk Factor for each.`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: [{ parts: [{ text: prompt }] }],
+        config: { 
+          tools: [{ googleMaps: {} }],
+          toolConfig: {
+            retrievalConfig: {
+              latLng: { latitude: Number(lat), longitude: Number(lon) }
+            }
+          }
+        }
+      });
+
+      let text = result.text || "";
+      const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (chunks && chunks.length > 0) {
+        const links = chunks
+          .map((chunk: any) => chunk.maps)
+          .filter((m: any) => m && m.uri)
+          .map((m: any) => `- [${m.title || 'View on Google Maps'}](${m.uri})`);
+        if (links.length > 0) {
+          text += `\n\n### Grounded Map Locations\n${links.join("\n")}`;
+        }
+      }
+
+      res.json({ text });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || "Failed to analyze water bodies" });
+    }
+  });
+
   app.get("/api/history", (req, res) => {
     try {
       const history = db.prepare("SELECT * FROM prediction_history ORDER BY timestamp DESC LIMIT 10").all();
